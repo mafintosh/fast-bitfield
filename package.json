@@ -1,0 +1,24 @@
+{
+  "name": "fast-bitfield",
+  "version": "0.0.0",
+  "description": "Variable sized bitfield that allows you to quickly iterate over bits",
+  "main": "index.js",
+  "dependencies": {},
+  "devDependencies": {
+    "standard": "^11.0.1",
+    "tape": "^4.9.1"
+  },
+  "scripts": {
+    "test": "standard && tape test.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mafintosh/fast-bitfield.git"
+  },
+  "author": "Mathias Buus (@mafintosh)",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/mafintosh/fast-bitfield/issues"
+  },
+  "homepage": "https://github.com/mafintosh/fast-bitfield"
+}
