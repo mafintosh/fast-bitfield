@@ -1,6 +1,6 @@
 {
   "name": "fast-bitfield",
-  "version": "0.0.0",
+  "version": "1.0.0",
   "description": "Variable sized bitfield that allows you to quickly iterate over bits",
   "main": "index.js",
   "dependencies": {},
