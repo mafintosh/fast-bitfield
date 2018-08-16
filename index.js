@@ -206,12 +206,6 @@ class Iterator {
     return this
   }
 
-  random (bit) {
-    const index = this.index
-    const i = this.seek(index + Math.floor(Math.random() * (this.length - index))).next(bit)
-    return i === -1 ? this.seek(index).next(bit) : i
-  }
-
   next (bit) {
     return bit ? this.nextTrue() : this.nextFalse()
   }
