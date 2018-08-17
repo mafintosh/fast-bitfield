@@ -86,6 +86,15 @@ tape('random bits (false)', function (t) {
   t.end()
 })
 
+tape('sparse and false iterator', function (t) {
+  const bits = bitfield()
+
+  bits.set(1000000000, true)
+  t.same(bits.iterator().next(false), 0)
+  t.same(bits.iterator().seek(100000).next(false), 100000)
+  t.end()
+})
+
 function randomBit (bits, len, bit) {
   const ite = bits.iterator().seek(Math.floor(Math.random() * len))
   const i = ite.next(bit)

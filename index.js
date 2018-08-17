@@ -178,9 +178,13 @@ class Iterator {
     this._bitfield = bitfield
     this._currentPage = bitfield._first
     this._index = 0
+    this._zeros = 0
+    this._bitOffset = 0
   }
 
   seek (index) {
+    this._bitOffset = index
+
     if (index === 0) {
       this._currentPage = this._bitfield._first
       this._index = 0
@@ -190,13 +194,21 @@ class Iterator {
     var page = this._bitfield._page
     var len = this._bitfield._maxLength
 
-    while (page.children) {
+    while (page && page.children) {
       len /= 32768
 
       const r = index & (len - 1)
       const p = (index - r) / len
+      const next = page.children[p]
 
-      page = page.children[p]
+      if (!next) {
+        this._currentPage = page
+        this._index = p
+        this._zeros = page.bitOffset + (p + 1) * len - this._bitOffset
+        return this
+      }
+
+      page = next
       index = r
     }
 
@@ -235,6 +247,17 @@ class Iterator {
 
   nextFalse () {
     var page = this._currentPage
+
+    while (page.children) {
+      if (this._zeros && !page.children[this._index]) {
+        this._zeros--
+        return this._bitOffset++
+      }
+
+      this.seek(this._bitOffset)
+      page = this._currentPage
+    }
+
     var b = this._index
     var mask = MASK_INCL
 
@@ -288,6 +311,7 @@ class Iterator {
       b = b * 32 + clz
 
       if (!page.children) break
+
       page = page.children[b]
       i = page.allOne.length
       b = 0
