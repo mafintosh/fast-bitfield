@@ -1,5 +1,7 @@
 'use strict'
 
+const ctz = require('count-trailing-zeros')
+
 module.exports = () => new Bitfield()
 
 class Page {
@@ -59,6 +61,24 @@ class Bitfield {
     this._parents = new Array(4).fill(null)
     this._page = new Page(0)
     this._allocs = 1
+  }
+
+  last () {
+    var page = this._page
+    var b = 0
+
+    while (true) {
+      for (var i = 2; i >= 0; i--) {
+        const c = ctz(page.oneOne[i][b])
+        if (c === 32) return -1
+        b = (b << 5) + (31 - c)
+      }
+
+      this._path[page.level] = b
+      if (!page.level) return defactor(this._path)
+      page = page.children[b]
+      b = 0
+    }
   }
 
   set (index, bit) {

@@ -97,6 +97,9 @@ tape('sparse and false iterator', function (t) {
   ite.next()
   bits.set(1000001, true)
   t.same(ite.next(), 1000002)
+
+  t.same(bits.last(), 1000000000)
+
   t.end()
 })
 
