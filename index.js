@@ -2,13 +2,37 @@ module.exports = () => new Bitfield()
 
 class Page {
   constructor (level) {
-    const buf = new Uint8Array(4228)
+    const buf = new Uint8Array(level ? 8456 : 4360)
+    const b = buf.byteOffset
+
     this.buffer = buf
-    this.bits = level ? null : new Uint32Array(buf.buffer, 0, 1024)
+    this.bits = level ? null : new Uint32Array(buf.buffer, b, 1024)
     this.children = level ? new Array(32768) : null
-    this.allOne = allocIndex(this.bits, buf)
-    this.oneOne = allocIndex(this.bits, buf)
     this.level = level
+
+    this.allOne = level
+      ? [
+        new Uint32Array(buf.buffer, b, 1024),
+        new Uint32Array(buf.buffer, b + 4096, 32),
+        new Uint32Array(buf.buffer, b + 4224, 1)
+      ]
+      : [
+        this.bits,
+        new Uint32Array(buf.buffer, b + 4096, 32),
+        new Uint32Array(buf.buffer, b + 4224, 1)
+      ]
+
+    this.oneOne = level
+      ? [
+        new Uint32Array(buf.buffer, b + 4228, 1024),
+        new Uint32Array(buf.buffer, b + 8324, 32),
+        new Uint32Array(buf.buffer, b + 8452, 1)
+      ]
+      : [
+        this.bits,
+        new Uint32Array(buf.buffer, b + 4228, 32),
+        new Uint32Array(buf.buffer, b + 4356, 1)
+      ]
   }
 }
 
@@ -21,7 +45,7 @@ for (var i = 0; i < 32; i++) {
   MASK_INCL[i] = Math.pow(2, 32 - i) - 1
 }
 
-const LITTLE_ENDIAN = new Uint8Array(MASK.buffer)[0] === 0xff
+const LITTLE_ENDIAN = new Uint8Array(MASK.buffer, MASK.byteOffset, 1)[0] === 0xff
 
 class Bitfield {
   constructor () {
@@ -29,7 +53,7 @@ class Bitfield {
     this.littleEndian = LITTLE_ENDIAN
 
     this._path = new Uint16Array(5)
-    this._offsets = new Uint16Array(this._path.buffer, 2)
+    this._offsets = new Uint16Array(this._path.buffer, this._path.byteOffset + 2, 4)
     this._parents = new Array(4).fill(null)
     this._page = new Page(0)
     this._allocs = 1
@@ -72,9 +96,9 @@ class Bitfield {
   }
 
   fill (val, start, end) {
-    if (val === true) return this._fillBit(true, start || 0, end || this.length)
-    if (val === false) return this._fillBit(false, start || 0, end || this.length)
-    this._fillBuffer(val, start || 0)
+    if (val === true) return this._fillBit(true, start || 0, end === 0 ? end : (end || this.length))
+    if (val === false) return this._fillBit(false, start || 0, end === 0 ? end : (end || this.length))
+    this._fillBuffer(val, start || 0, end === 0 ? end : (end || val.length))
   }
 
   grow () {
@@ -86,11 +110,11 @@ class Bitfield {
     else this.length *= 32768
   }
 
-  _fillBuffer (buf, start) {
+  _fillBuffer (buf, start, end) {
     if (start & 7) throw new Error('Offsets must be a multiple of 8')
 
     start /= 8
-    const end = start + buf.length
+    end = start + end
     while (8 * end > this.length) this.grow()
 
     var page = this._getPage(start, true)
@@ -123,7 +147,7 @@ class Bitfield {
   }
 
   _setPageBuffer (page, buf, start) {
-    new Uint8Array(page.bits.buffer).set(buf, start)
+    new Uint8Array(page.bits.buffer, page.bits.byteOffset, page.bits.length).set(buf, start)
     start >>>= 2
     this._update(page, start, start + (buf.length >>> 2) + (buf.length & 3 ? 1 : 0))
     return buf.length
@@ -248,7 +272,7 @@ class Iterator {
   constructor (bitfield) {
     this._bitfield = bitfield
     this._path = new Uint16Array(5)
-    this._offsets = new Uint16Array(this._path.buffer, 2)
+    this._offsets = new Uint16Array(this._path.buffer, this._path.byteOffset + 2, 4)
     this._parents = new Array(4).fill(null)
     this._page = null
     this._allocs = bitfield._allocs
@@ -392,19 +416,4 @@ function factor (n, out) {
   n = (n - (out[0] = (n & 32767))) / 32768
   n = (n - (out[1] = (n & 32767))) / 32768
   out[3] = ((n - (out[2] = (n & 32767))) / 32768) & 32767
-}
-
-function allocIndex (bits, buf) {
-  if (!bits) {
-    return [
-      new Uint32Array(buf, 0, 1024),
-      new Uint32Array(buf, 4096, 32),
-      new Uint32Array(buf, 4224, 1)
-    ]
-  }
-  return [
-    bits,
-    new Uint32Array(buf, 4096, 32),
-    new Uint32Array(buf, 4224, 1)
-  ]
 }
