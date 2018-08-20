@@ -92,6 +92,28 @@ tape('sparse and false iterator', function (t) {
   bits.set(1000000000, true)
   t.same(bits.iterator().next(false), 0)
   t.same(bits.iterator().seek(100000).next(false), 100000)
+
+  const ite = bits.iterator().seek(1000000)
+  ite.next()
+  bits.set(1000001, true)
+  t.same(ite.next(), 1000002)
+  t.end()
+})
+
+tape('fill', function (t) {
+  const bits = bitfield()
+
+  bits.set(10000000, true)
+  bits.set(10000001, true)
+  bits.fill(false, 0, 10000001)
+  t.notOk(bits.get(10000000))
+  t.ok(bits.get(10000001))
+  bits.set(10000001, false)
+  bits.fill(true, 10, 10000001)
+  t.notOk(bits.get(9))
+  t.ok(bits.get(10))
+  t.ok(bits.get(10000000))
+  t.notOk(bits.get(10000001))
   t.end()
 })
 

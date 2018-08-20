@@ -1,219 +1,276 @@
-module.exports = () => new SparseBitfield()
-
-function allocIndex (bits) {
-  if (!bits) {
-    return [
-      new Uint32Array(32 * 32),
-      new Uint32Array(32),
-      new Uint32Array(1)
-    ]
-  }
-  return [bits, new Uint32Array(32 * 32), new Uint32Array(1)]
-}
-
-const MASK = []
-for (var i = 0; i < 32; i++) MASK[i] = Math.pow(2, 31 - i) - 1
-
-const MASK_INCL = []
-for (var j = 0; j < 32; j++) MASK_INCL[j] = Math.pow(2, 32 - j) - 1
+module.exports = () => new Bitfield()
 
 class Page {
+  constructor (level) {
+    const buf = new Uint8Array(4228)
+    this.buffer = buf
+    this.bits = level ? null : new Uint32Array(buf.buffer, 0, 1024)
+    this.children = level ? new Array(32768) : null
+    this.allOne = allocIndex(this.bits, buf)
+    this.oneOne = allocIndex(this.bits, buf)
+    this.level = level
+  }
+}
+
+const ZEROS = [new Page(0), new Page(1), new Page(2), new Page(3)]
+const MASK = new Uint32Array(32)
+const MASK_INCL = new Uint32Array(32)
+
+for (var i = 0; i < 32; i++) {
+  MASK[i] = Math.pow(2, 31 - i) - 1
+  MASK_INCL[i] = Math.pow(2, 32 - i) - 1
+}
+
+const LITTLE_ENDIAN = new Uint8Array(MASK.buffer)[0] === 0xff
+
+class Bitfield {
   constructor () {
-    this.bits = null
-    this.oneOne = null
-    this.allOne = null
-    this.parent = null
-    this.children = null
-    this.offset = 0
-    this.bitOffset = 0
-  }
+    this.length = 32768
+    this.littleEndian = LITTLE_ENDIAN
 
-  init (bits) {
-    if (bits) this.bits = new Uint32Array(32 * 32)
-    else this.children = new Array(32 * 32 * 32)
-    this.oneOne = allocIndex(this.bits)
-    this.allOne = allocIndex(this.bits)
-  }
-
-  addChildPage (p, len) {
-    const page = new Page()
-    page.parent = this
-    page.offset = p
-    page.init(len === 32768)
-    page.bitOffset = this.bitOffset + len * page.offset
-    this.children[p] = page
-    return page
+    this._path = new Uint16Array(5)
+    this._offsets = new Uint16Array(this._path.buffer, 2)
+    this._parents = new Array(4).fill(null)
+    this._page = new Page(0)
+    this._allocs = 1
   }
 
   set (index, bit) {
-    const r = index & 31
-    const b = (index - r) / 32
-    const prev = this.bits[b]
+    const page = this._getPage(index, bit)
+    if (!page) return false
 
-    this.bits[b] = bit ? (prev | (0x80000000 >>> r)) : (prev & ~(0x80000000 >>> r))
+    const i = this._path[0]
+    const r = i & 31
+    const b = i >>> 5
+    const prev = page.bits[b]
 
-    const upd = this.bits[b]
+    page.bits[b] = bit
+      ? (prev | (0x80000000 >>> r))
+      : (prev & ~(0x80000000 >>> r))
+
+    const upd = page.bits[b]
     if (upd === prev) return false
 
-    this.updateAllOne(b, upd)
-    this.updateOneOne(b, upd)
+    this._updateAllOne(page, b, upd)
+    this._updateOneOne(page, b, upd)
 
     return true
   }
 
-  updateAllOne (b, upd) {
-    var page = this
-    var i = 1
-
-    do {
-      for (; i < page.allOne.length; i++) {
-        const buf = page.allOne[i]
-        const r = b & 31
-        b = (b - r) / 32
-        const prev = buf[b]
-        buf[b] = upd === 0xffffffff ? (prev | (0x80000000 >>> r)) : (prev & ~(0x80000000 >>> r))
-        upd = buf[b]
-        if (upd === prev) return
-      }
-
-      b += page.offset
-      page = page.parent
-      i = 0
-    } while (page)
-  }
-
-  updateOneOne (b, upd) {
-    var page = this
-    var i = 1
-
-    do {
-      for (; i < page.oneOne.length; i++) {
-        const buf = page.oneOne[i]
-        const r = b & 31
-        b = (b - r) / 32
-        const prev = buf[b]
-        buf[b] = upd !== 0 ? (prev | (0x80000000 >>> r)) : (prev & ~(0x80000000 >>> r))
-        upd = buf[b]
-        if (upd === prev) return
-      }
-
-      b += page.offset
-      page = page.parent
-      i = 0
-    } while (page)
-  }
-
   get (index) {
-    const r = index & 31
-    const b = (index - r) / 32
+    const page = this._getPage(index, false)
+    if (!page) return false
 
-    return (this.bits[b] & (0x80000000 >>> r)) !== 0
-  }
-}
+    const i = this._path[0]
+    const r = i & 31
 
-class SparseBitfield {
-  constructor () {
-    this._page = new Page()
-    this._page.init(true)
-    this._maxLength = 32768
-    this._first = this._page
-  }
-
-  _grow () {
-    const page = new Page()
-    page.init(false)
-    page.children[0] = this._page
-    page.children[0].parent = page
-    this._maxLength *= 32768
-    this._page = page
-  }
-
-  set (index, bit) {
-    while (index >= this._maxLength) this._grow()
-
-    var page = this._page
-    var len = this._maxLength
-
-    while (true) {
-      if (!page.children) return page.set(index, bit)
-
-      len /= 32768
-
-      const r = index & (len - 1)
-      const p = (index - r) / len
-
-      page = page.children[p] || (bit ? page.addChildPage(p, len) : null)
-      index = r
-    }
-  }
-
-  get (index, bit) {
-    if (index >= this.length) return false
-
-    var page = this._page
-    var len = this._maxLength
-
-    while (page) {
-      if (!page.children) return page.get(index)
-
-      len /= 32768
-
-      const r = index & (len - 1)
-      const p = (index - r) / len
-
-      page = page.children[p]
-      index = r
-    }
-
-    return false
+    return (page.bits[i >>> 5] & (0x80000000 >>> r)) !== 0
   }
 
   iterator () {
     return new Iterator(this)
+  }
+
+  fill (val, start, end) {
+    if (val === true) return this._fillBit(true, start || 0, end || this.length)
+    if (val === false) return this._fillBit(false, start || 0, end || this.length)
+    this._fillBuffer(val, start || 0)
+  }
+
+  grow () {
+    if (this._page.level === 3) throw new Error('Cannot grow beyond ' + this.length)
+    const page = this._page
+    this._page = new Page(page.level + 1)
+    this._page.children[0] = page
+    if (this._page.level === 3) this.length = Number.MAX_SAFE_INTEGER
+    else this.length *= 32768
+  }
+
+  _fillBuffer (buf, start) {
+    if (start & 7) throw new Error('Offsets must be a multiple of 8')
+
+    start /= 8
+    const end = start + buf.length
+    while (8 * end > this.length) this.grow()
+
+    var page = this._getPage(start, true)
+
+    while (start < end) {
+      const delta = end - start < 4096 ? end - start : 4096
+      start += this._setPageBuffer(page, buf.subarray(start, start + delta), start & 1023)
+      if (start !== end) page = this._nextPage(page, start)
+    }
+  }
+
+  _fillBit (bit, start, end) {
+    var page = this._getPage(start, bit)
+
+    // TODO: this can be optimised a lot in the case of end - start > 32768
+    // in that case clear levels of 32768 ** 2 instead etc
+
+    while (start < end) {
+      const delta = end - start < 32768 ? end - start : 32768
+      start += this._setPageBits(page, bit, start & 32767, delta)
+      if (start !== end) page = this._nextPage(page, start)
+    }
+  }
+
+  _nextPage (page, start) {
+    const i = ++this._offsets[page.level]
+    return i === 32768
+      ? this._getPage(start, true)
+      : this._parents[page.level].children[i] || this._addPage(this._parents[page.level], i)
+  }
+
+  _setPageBuffer (page, buf, start) {
+    new Uint8Array(page.bits.buffer).set(buf, start)
+    start >>>= 2
+    this._update(page, start, start + (buf.length >>> 2) + (buf.length & 3 ? 1 : 0))
+    return buf.length
+  }
+
+  _setPageBits (page, bit, start, end) {
+    const s = start >>> 5
+    const e = end >>> 5
+    const sm = 0xffffffff >>> (start & 31)
+    const em = ~(0xffffffff >>> (end & 31))
+
+    if (s === e) {
+      page.bits[s] = bit
+        ? page.bits[s] | (sm & em)
+        : page.bits[s] & ~(sm & em)
+      this._update(page, s, s + 1)
+      return end - start
+    }
+
+    page.bits[s] = bit
+      ? page.bits[s] | sm
+      : page.bits[s] & (~sm)
+
+    if (e - s > 2) page.bits.fill(bit ? 0xffffffff : 0, s + 1, e - 1)
+
+    if (e === 1024) {
+      page.bits[e - 1] = bit ? 0xffffffff : 0
+      this._update(page, s, e)
+      return end - start
+    }
+
+    page.bits[e] = bit
+      ? page.bits[e] | em
+      : page.bits[e] & (~em)
+
+    this._update(page, s, e + 1)
+    return end - start
+  }
+
+  _update (page, start, end) {
+    for (; start < end; start++) {
+      const upd = page.bits[start]
+      this._updateAllOne(page, start, upd)
+      this._updateOneOne(page, start, upd)
+    }
+  }
+
+  _updateAllOne (page, b, upd) {
+    var i = 1
+
+    do {
+      for (; i < 3; i++) {
+        const buf = page.allOne[i]
+        const r = b & 31
+        const prev = buf[b >>>= 5]
+        buf[b] = upd === 0xffffffff
+          ? (prev | (0x80000000 >>> r))
+          : (prev & ~(0x80000000 >>> r))
+        upd = buf[b]
+        if (upd === prev) return
+      }
+
+      b += this._offsets[page.level]
+      page = this._parents[page.level]
+      i = 0
+    } while (page)
+  }
+
+  _updateOneOne (page, b, upd) {
+    var i = 1
+
+    do {
+      for (; i < 3; i++) {
+        const buf = page.oneOne[i]
+        const r = b & 31
+        const prev = buf[b >>>= 5]
+        buf[b] = upd !== 0
+          ? (prev | (0x80000000 >>> r))
+          : (prev & ~(0x80000000 >>> r))
+        upd = buf[b]
+        if (upd === prev) return
+      }
+
+      b += this._offsets[page.level]
+      page = this._parents[page.level]
+      i = 0
+
+      if (upd === 0 && page) {
+        // all zeros, non root -> free page
+        page.children[this._offsets[page.level - 1]] = undefined
+      }
+    } while (page)
+  }
+
+  _getPage (index, createIfMissing) {
+    factor(index, this._path)
+
+    while (index >= this.length) {
+      if (!createIfMissing) return null
+      this.grow()
+    }
+
+    var page = this._page
+
+    for (var i = page.level; i > 0 && page; i--) {
+      const p = this._path[i]
+      this._parents[i - 1] = page
+      page = page.children[p] || (createIfMissing ? this._addPage(page, p) : null)
+    }
+
+    return page
+  }
+
+  _addPage (page, i) {
+    this._allocs++
+    page = page.children[i] = new Page(page.level - 1)
+    return page
   }
 }
 
 class Iterator {
   constructor (bitfield) {
     this._bitfield = bitfield
-    this._currentPage = bitfield._first
-    this._index = 0
-    this._zeros = 0
-    this._bitOffset = 0
+    this._path = new Uint16Array(5)
+    this._offsets = new Uint16Array(this._path.buffer, 2)
+    this._parents = new Array(4).fill(null)
+    this._page = null
+    this._allocs = bitfield._allocs
+
+    this.seek(0)
   }
 
   seek (index) {
-    this._bitOffset = index
+    this._allocs = this._bitfield._allocs
 
-    if (index === 0) {
-      this._currentPage = this._bitfield._first
-      this._index = 0
+    if (index >= this._bitfield.length) {
+      this._page = null
       return this
     }
 
-    var page = this._bitfield._page
-    var len = this._bitfield._maxLength
+    factor(index, this._path)
 
-    while (page && page.children) {
-      len /= 32768
-
-      const r = index & (len - 1)
-      const p = (index - r) / len
-      const next = page.children[p]
-
-      if (!next) {
-        this._currentPage = page
-        this._index = p
-        this._zeros = page.bitOffset + (p + 1) * len - this._bitOffset
-        return this
-      }
-
-      page = next
-      index = r
+    this._page = this._bitfield._page
+    for (var i = this._page.level; i > 0; i--) {
+      this._parents[i - 1] = this._page
+      this._page = this._page.children[this._path[i]] || ZEROS[i - 1]
     }
-
-    this._currentPage = page
-    this._index = index
 
     return this
   }
@@ -222,59 +279,74 @@ class Iterator {
     return bit ? this.nextTrue() : this.nextFalse()
   }
 
-  nextTrue () {
-    var page = this._currentPage
-    var b = this._index
+  nextFalse () {
+    if (this._allocs !== this._bitfield._allocs) {
+      // If a page has been alloced while we are iterating
+      // and we have a zero page in our path we need to reseek
+      // in case that page has been overwritten
+      this.seek(defactor(this._path))
+    }
+
+    var page = this._page
+    var b = this._path[0]
     var mask = MASK_INCL
 
-    do {
-      if (b < 32768) {
-        for (var i = 0; i < page.oneOne.length; i++) {
-          const r = b & 31
-          b = (b - r) / 32
-          const clz = Math.clz32(page.oneOne[i][b] & mask[r])
-          if (clz !== 32) return this._downLeftTrue(page, i, b, clz)
-          mask = MASK
-        }
+    while (page) {
+      for (var i = 0; i < 3; i++) {
+        const r = b & 31
+        const clz = Math.clz32((~page.allOne[i][b >>>= 5]) & mask[r])
+        if (clz !== 32) return this._downLeftFalse(page, i, b, clz)
+        mask = MASK
       }
 
-      b = page.offset
-      page = page.parent
-    } while (page)
+      b = this._offsets[page.level]
+      page = this._parents[page.level]
+    }
 
     return -1
   }
 
-  nextFalse () {
-    var page = this._currentPage
-
-    while (page.children) {
-      if (this._zeros && !page.children[this._index]) {
-        this._zeros--
-        return this._bitOffset++
+  _downLeftFalse (page, i, b, clz) {
+    while (true) {
+      while (i) {
+        b = (b << 5) + clz
+        clz = Math.clz32(~page.allOne[--i][b])
       }
 
-      this.seek(this._bitOffset)
-      page = this._currentPage
+      b = (b << 5) + clz
+
+      if (!page.level) break
+
+      this._parents[page.level - 1] = page
+      this._path[page.level] = b
+
+      page = page.children[b]
+      i = 3
+      clz = b = 0
     }
 
-    var b = this._index
+    this._page = page
+    this._path[0] = b
+
+    return this._inc()
+  }
+
+  nextTrue () {
+    var page = this._page
+    var b = this._path[0]
     var mask = MASK_INCL
 
-    do {
-      if (b < 32768) {
-        for (var i = 0; i < page.allOne.length; i++) {
-          const r = b & 31
-          b = (b - r) / 32
-          const clz = Math.clz32((~page.allOne[i][b]) & mask[r])
-          if (clz !== 32) return this._downLeftFalse(page, i, b, clz)
-          mask = MASK
-        }
+    while (page) {
+      for (var i = 0; i < 3; i++) {
+        const r = b & 31
+        const clz = Math.clz32(page.oneOne[i][b >>>= 5] & mask[r])
+        if (clz !== 32) return this._downLeftTrue(page, i, b, clz)
+        mask = MASK
       }
 
-      b = page.offset
-      page = page.parent
-    } while (page)
+      b = this._offsets[page.level]
+      page = this._parents[page.level]
+    }
 
     return -1
   }
@@ -282,45 +354,57 @@ class Iterator {
   _downLeftTrue (page, i, b, clz) {
     while (true) {
       while (i) {
-        b = b * 32 + clz
+        b = (b << 5) + clz
         clz = Math.clz32(page.oneOne[--i][b])
       }
 
-      b = b * 32 + clz
+      b = (b << 5) + clz
 
-      if (!page.children) break
-      page = page.children[b]
-      i = page.oneOne.length
-      b = 0
-      clz = 0
-    }
+      if (!page.level) break
 
-    this._index = b + 1
-    this._currentPage = page
-
-    return page.bitOffset + b
-  }
-
-  _downLeftFalse (page, i, b, clz) {
-    while (true) {
-      while (i) {
-        b = b * 32 + clz
-        clz = Math.clz32(~page.allOne[--i][b])
-      }
-
-      b = b * 32 + clz
-
-      if (!page.children) break
+      this._parents[page.level - 1] = page
+      this._path[page.level] = b
 
       page = page.children[b]
-      i = page.allOne.length
-      b = 0
-      clz = 0
+      i = 3
+      clz = b = 0
     }
 
-    this._index = b + 1
-    this._currentPage = page
+    this._page = page
+    this._path[0] = b
 
-    return page.bitOffset + b
+    return this._inc()
   }
+
+  _inc () {
+    const n = defactor(this._path)
+    if (this._path[0] < 32767) this._path[0]++
+    else this.seek(n + 1)
+    return n
+  }
+}
+
+function defactor (out) {
+  return ((((out[3] * 32768 + out[2]) * 32768) + out[1]) * 32768) + out[0]
+}
+
+function factor (n, out) {
+  n = (n - (out[0] = (n & 32767))) / 32768
+  n = (n - (out[1] = (n & 32767))) / 32768
+  out[3] = ((n - (out[2] = (n & 32767))) / 32768) & 32767
+}
+
+function allocIndex (bits, buf) {
+  if (!bits) {
+    return [
+      new Uint32Array(buf, 0, 1024),
+      new Uint32Array(buf, 4096, 32),
+      new Uint32Array(buf, 4224, 1)
+    ]
+  }
+  return [
+    bits,
+    new Uint32Array(buf, 4096, 32),
+    new Uint32Array(buf, 4224, 1)
+  ]
 }

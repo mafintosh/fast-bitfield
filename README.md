@@ -44,6 +44,10 @@ Get a bit.
 
 Runs in `O(log32(maxBitIndex))`
 
+#### `bits.fill(val, [start], [end])`
+
+Set a range of bits efficiently.
+
 #### `iterator = bits.iterator()`
 
 Make a new bit iterator.
