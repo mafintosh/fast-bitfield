@@ -120,6 +120,17 @@ tape('fill', function (t) {
   t.end()
 })
 
+tape('fill buffer', function (t) {
+  const bits = bitfield()
+
+  bits.set(42, true)
+  bits.set(100000, true)
+  bits.fill(Buffer.alloc(87654), 0)
+  t.notOk(bits.get(42))
+  t.notOk(bits.get(100000))
+  t.end()
+})
+
 function randomBit (bits, len, bit) {
   const ite = bits.iterator().seek(Math.floor(Math.random() * len))
   const i = ite.next(bit)

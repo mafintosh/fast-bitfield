@@ -118,9 +118,10 @@ class Bitfield {
   }
 
   fill (val, start, end) {
-    if (val === true) return this._fillBit(true, start || 0, end === 0 ? end : (end || this.length))
-    if (val === false) return this._fillBit(false, start || 0, end === 0 ? end : (end || this.length))
-    this._fillBuffer(val, start || 0, end === 0 ? end : (end || val.length))
+    if (!start) start = 0
+    if (val === true) return this._fillBit(true, start, end === 0 ? end : (end || this.length))
+    if (val === false) return this._fillBit(false, start, end === 0 ? end : (end || this.length))
+    this._fillBuffer(val, start, end === 0 ? end : (end || (start + 8 * val.length)))
   }
 
   grow () {
@@ -133,11 +134,11 @@ class Bitfield {
   }
 
   _fillBuffer (buf, start, end) {
-    if (start & 7) throw new Error('Offsets must be a multiple of 8')
+    if ((start & 7) || (end & 7)) throw new Error('Offsets must be a multiple of 8')
 
     start /= 8
-    end = start + end
-    while (8 * end > this.length) this.grow()
+    while (end > this.length) this.grow()
+    end /= 8
 
     var page = this._getPage(start, true)
 
@@ -169,7 +170,7 @@ class Bitfield {
   }
 
   _setPageBuffer (page, buf, start) {
-    new Uint8Array(page.bits.buffer, page.bits.byteOffset, page.bits.length).set(buf, start)
+    new Uint8Array(page.bits.buffer, page.bits.byteOffset, page.bits.length * 4).set(buf, start)
     start >>>= 2
     this._update(page, start, start + (buf.length >>> 2) + (buf.length & 3 ? 1 : 0))
     return buf.length
