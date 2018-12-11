@@ -140,12 +140,15 @@ class Bitfield {
     while (end > this.length) this.grow()
     end /= 8
 
-    var page = this._getPage(start, true)
+    const offset = start
+    var page = this._getPage(8 * start, true)
 
     while (start < end) {
       const delta = end - start < 4096 ? end - start : 4096
-      start += this._setPageBuffer(page, buf.subarray(start, start + delta), start & 1023)
-      if (start !== end) page = this._nextPage(page, start)
+      const s = start - offset
+
+      start += this._setPageBuffer(page, buf.subarray(s, s + delta), start & 1023)
+      if (start !== end) page = this._nextPage(page, 8 * start)
     }
   }
 
