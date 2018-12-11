@@ -129,6 +129,17 @@ tape('fill buffer', function (t) {
   t.end()
 })
 
+tape('fill buffer offset', function (t) {
+  const bits = bitfield()
+
+  const buf = Buffer.alloc(128 * 1024)
+  buf.fill(0xff)
+  bits.fill(buf, 9437184)
+
+  t.ok(bits.get(1e7))
+  t.end()
+})
+
 function randomBit (bits, len, bit) {
   const ite = bits.iterator().seek(Math.floor(Math.random() * len))
   const i = ite.next(bit)
