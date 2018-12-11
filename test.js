@@ -52,8 +52,7 @@ tape('random bits (true)', function (t) {
   const ite = bits.iterator()
 
   while (set.length) {
-    const i = ite.next(true)
-    t.same(i, set.shift())
+    t.same(ite.next(true), set.shift())
   }
 
   t.end()
@@ -79,8 +78,7 @@ tape('random bits (false)', function (t) {
   const ite = bits.iterator()
 
   while (set.length) {
-    const i = ite.next(false)
-    t.same(i, set.shift())
+    t.same(ite.next(false), set.shift())
   }
 
   t.end()
