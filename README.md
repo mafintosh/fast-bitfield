@@ -4,7 +4,7 @@ A variable sized bitfield (based on [indexed-bitfield](https://github.com/mafint
 you to quickly iterate over the bits.
 
 ```
-npm install sparse-indexed-bitfield
+npm install fast-bitfield
 ```
 
 Allocates a series of ~4kb bitfields (when needed) to store the underlying data efficiently.
